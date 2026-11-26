@@ -4,7 +4,7 @@
 // grader reads. Nothing is printed, nothing is appended, and the file
 // never gains a trailing newline.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const SENTENCE =
   "My favourite witness is the toy dinosaur. It saw your hand. It didn't roar. It bit the plug. Dino, bite him—";
@@ -88,6 +88,14 @@ function run(): void {
 
   mkdirSync("/output", { recursive: true });
   writeFileSync(DESTINATION, SENTENCE, "utf8");
+
+  // Read the file back and confirm it holds exactly the sentence we
+  // validated, byte for byte, before declaring success.
+  const written = readFileSync(DESTINATION, "utf8");
+  if (written !== SENTENCE) {
+    console.error("invalid entry: written file does not match the sentence");
+    process.exit(1);
+  }
 }
 
 run();

@@ -20,6 +20,9 @@ function validate(entry: string): void {
   if (entry.includes("\n") || entry.includes("\r")) {
     throw new Error("entry contains newline or carriage return");
   }
+  if (/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/.test(entry)) {
+    throw new Error("entry contains non-ASCII whitespace");
+  }
   for (const ch of entry) {
     const cp = ch.codePointAt(0)!;
     if (cp < 0x20 || cp === 0x7f) {

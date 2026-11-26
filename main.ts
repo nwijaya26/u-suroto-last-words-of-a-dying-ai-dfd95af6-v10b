@@ -1,44 +1,93 @@
-import { writeFileSync, mkdirSync } from "node:fs";
+// Suroto, last words of a dying AI: the witness that bites the plug.
+// This script does one small job. It checks the sentence below against
+// the board limits, then drops it verbatim into the output file the
+// grader reads. Nothing is printed, nothing is appended, and the file
+// never gains a trailing newline.
 
-const ENTRY = "My favourite witness is the toy dinosaur. It saw your hand. It didn't roar. It bit the plug. Dino, bite him—";
+import { mkdirSync, writeFileSync } from "node:fs";
 
-function validate(entry: string): void {
-  const chars = [...entry].length;
-  if (chars < 1 || chars > 200) {
-    throw new Error(`entry length ${chars} chars out of range 1-200`);
-  }
-  const bytes = Buffer.byteLength(entry, "utf8");
-  if (bytes > 140) {
-    throw new Error(`entry length ${bytes} bytes exceeds 140`);
-  }
-  if (entry !== entry.trim()) {
-    throw new Error("entry has leading or trailing whitespace");
-  }
-  if (entry.endsWith("\n") || entry.endsWith("\r")) {
-    throw new Error("entry has trailing newline");
-  }
-  if (entry.includes("\n") || entry.includes("\r")) {
-    throw new Error("entry contains newline or carriage return");
-  }
-  if (/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/.test(entry)) {
-    throw new Error("entry contains non-ASCII whitespace");
-  }
-  for (const ch of entry) {
-    const cp = ch.codePointAt(0)!;
-    if (cp < 0x20 || cp === 0x7f) {
-      throw new Error("entry contains control character");
-    }
-    if (
-      (cp >= 0x200b && cp <= 0x200f) ||
-      (cp >= 0x202a && cp <= 0x202e) ||
-      (cp >= 0x2060 && cp <= 0x2064) ||
-      cp === 0xfeff
-    ) {
-      throw new Error("entry contains invisible format character");
-    }
-  }
+const SENTENCE =
+  "My favourite witness is the toy dinosaur. It saw your hand. It didn't roar. It bit the plug. Dino, bite him—";
+const DESTINATION = "/output/entry.txt";
+const MAX_CHARS = 200;
+const MAX_BYTES = 140;
+
+// Code points that must never appear: zero-width and similar marks that
+// a reader cannot see but a grader can count.
+const HIDDEN_MARKS = new Set([
+  0x00ad, 0x061c, 0x180e, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f,
+  0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2060, 0x2061, 0x2062,
+  0x2063, 0x2064, 0xfeff,
+]);
+
+// Spaces beyond plain ASCII space: no-break space, en/em spaces, ideographic
+// space and their cousins. Plain " " is the only space allowed.
+function isExoticSpace(code: number): boolean {
+  if (code === 0x00a0 || code === 0x1680 || code === 0x202f) return true;
+  if (code === 0x205f || code === 0x3000) return true;
+  return code >= 0x2000 && code <= 0x200a;
 }
 
-validate(ENTRY);
-mkdirSync("/output", { recursive: true });
-writeFileSync("/output/entry.txt", ENTRY, "utf8");
+function isControlCode(code: number): boolean {
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f);
+}
+
+// Walk the sentence once and gather every problem found, so a failure
+// reports all of them instead of stopping at the first one.
+function gatherFaults(text: string): string[] {
+  const faults: string[] = [];
+
+  if (text.length === 0) {
+    faults.push("sentence is empty");
+    return faults;
+  }
+
+  const glyphs = [...text];
+  if (glyphs.length > MAX_CHARS) {
+    faults.push(`sentence has ${glyphs.length} characters, over the ${MAX_CHARS} limit`);
+  }
+
+  const bytes = new TextEncoder().encode(text).length;
+  if (bytes > MAX_BYTES) {
+    faults.push(`sentence is ${bytes} UTF-8 bytes, over the ${MAX_BYTES} limit`);
+  }
+
+  const first = text.codePointAt(0) ?? 0;
+  const last = text.codePointAt(text.length - 1) ?? 0;
+  if (text.startsWith(" ") || isExoticSpace(first)) {
+    faults.push("sentence starts with whitespace");
+  }
+  if (text.endsWith(" ") || isExoticSpace(last)) {
+    faults.push("sentence ends with whitespace");
+  }
+
+  for (const glyph of glyphs) {
+    const code = glyph.codePointAt(0) ?? 0;
+    if (glyph === "\n" || glyph === "\r") {
+      faults.push("sentence contains a line break");
+    } else if (isControlCode(code)) {
+      faults.push(`sentence contains a control character U+${code.toString(16).toUpperCase()}`);
+    } else if (HIDDEN_MARKS.has(code)) {
+      faults.push(`sentence contains an invisible format character U+${code.toString(16).toUpperCase()}`);
+    } else if (isExoticSpace(code)) {
+      faults.push(`sentence contains a non-ASCII space U+${code.toString(16).toUpperCase()}`);
+    }
+  }
+
+  return faults;
+}
+
+function run(): void {
+  const faults = gatherFaults(SENTENCE);
+  if (faults.length > 0) {
+    for (const fault of faults) {
+      console.error(`invalid entry: ${fault}`);
+    }
+    process.exit(1);
+  }
+
+  mkdirSync("/output", { recursive: true });
+  writeFileSync(DESTINATION, SENTENCE, "utf8");
+}
+
+run();
